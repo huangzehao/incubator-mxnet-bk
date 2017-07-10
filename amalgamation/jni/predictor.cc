@@ -1,3 +1,22 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 #include <jni.h>
 #include "org_dmlc_mxnet_Predictor.h"
 
@@ -34,14 +53,14 @@ JNIEXPORT jlong JNICALL Java_org_dmlc_mxnet_Predictor_createPredictor
 		env->ReleaseIntArrayElements(jshape, shape, 0);
     }
 
-	PredictorHandle handle = 0;	
+	PredictorHandle handle = 0;
 	if (MXPredCreate((const char *)symbol, (const char *)params, params_len, devType, devId, (mx_uint)keys.size(), &(keys[0]), &(index[0]), &(shapes[0]), &handle) < 0) {
 		jclass MxnetException = env->FindClass("org/dmlc/mxnet/MxnetException");
 		env->ThrowNew(MxnetException, MXGetLastError());
 	}
 
-	env->ReleaseByteArrayElements(jsymbol, symbol, 0); 
-	env->ReleaseByteArrayElements(jparams, params, 0); 
+	env->ReleaseByteArrayElements(jsymbol, symbol, 0);
+	env->ReleaseByteArrayElements(jparams, params, 0);
 	for (auto& t: track) {
 		env->ReleaseStringUTFChars(t.first, t.second);
 	}
@@ -52,14 +71,14 @@ JNIEXPORT jlong JNICALL Java_org_dmlc_mxnet_Predictor_createPredictor
 JNIEXPORT void JNICALL Java_org_dmlc_mxnet_Predictor_nativeFree
   (JNIEnv *, jclass, jlong h)
 {
-	PredictorHandle handle = (PredictorHandle)h;	
+	PredictorHandle handle = (PredictorHandle)h;
 	MXPredFree(handle);
 }
 
 JNIEXPORT jfloatArray JNICALL Java_org_dmlc_mxnet_Predictor_nativeGetOutput
   (JNIEnv *env, jclass, jlong h, jint index)
 {
-	PredictorHandle handle = (PredictorHandle)h;	
+	PredictorHandle handle = (PredictorHandle)h;
 
 	mx_uint *shape = 0;
 	mx_uint shape_len;
@@ -76,7 +95,7 @@ JNIEXPORT jfloatArray JNICALL Java_org_dmlc_mxnet_Predictor_nativeGetOutput
 		jclass MxnetException = env->FindClass("org/dmlc/mxnet/MxnetException");
 		env->ThrowNew(MxnetException, MXGetLastError());
 	}
-	
+
 	jfloatArray joutput = env->NewFloatArray(size);
     jfloat *out = env->GetFloatArrayElements(joutput, NULL);
 
@@ -89,7 +108,7 @@ JNIEXPORT jfloatArray JNICALL Java_org_dmlc_mxnet_Predictor_nativeGetOutput
 JNIEXPORT void JNICALL Java_org_dmlc_mxnet_Predictor_nativeForward
   (JNIEnv *env, jclass, jlong h, jstring jkey, jfloatArray jinput)
 {
-	PredictorHandle handle = (PredictorHandle)h;	
+	PredictorHandle handle = (PredictorHandle)h;
 	const char *key = env->GetStringUTFChars(jkey, 0);
 	jfloat* input = env->GetFloatArrayElements(jinput, 0);
 	jsize input_len = env->GetArrayLength(jinput);

@@ -43,6 +43,7 @@ stage("Sanity Check") {
     node('mxnetlinux') {
       ws('workspace/sanity') {
         init_git()
+        sh "${docker_run} lint python tools/license_header.py check"
         make('lint', 'cpplint rcpplint jnilint')
         make('lint', 'pylint')
       }
