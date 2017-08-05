@@ -27,10 +27,18 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
   int resize;
   /*! \brief whether we do random cropping */
   bool rand_crop;
+  /*! \brief whether use facebook style augmentation */
+  bool facebook_aug;
   /*! \brief [-max_rotate_angle, max_rotate_angle] */
   int max_rotate_angle;
   /*! \brief max aspect ratio */
   float max_aspect_ratio;
+  /*! \brief min aspect ratio */
+  float min_aspect_ratio;
+  /*! \brief max random area */
+  float max_random_area;
+  /*! \brief min random area */
+  float min_random_area;
   /*! \brief random shear the image [-max_shear_ratio, max_shear_ratio] */
   float max_shear_ratio;
   /*! \brief max crop size */
@@ -45,6 +53,12 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
   float min_img_size;
   /*! \brief max image size */
   float max_img_size;
+  /*! \brief max random brightness */
+  float brightness;
+  /*! \brief max random contrast */
+  float contrast;
+  /*! \brief max random saturation */
+  float saturation;
   /*! \brief max random in H channel */
   int random_h;
   /*! \brief max random in S channel */
@@ -68,11 +82,22 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
                   "before applying other augmentations.");
     DMLC_DECLARE_FIELD(rand_crop).set_default(false)
         .describe("If or not randomly crop the image");
+    DMLC_DECLARE_FIELD(facebook_aug).set_default(false)
+        .describe("If or not use facebook_aug");
     DMLC_DECLARE_FIELD(max_rotate_angle).set_default(0.0f)
         .describe("Rotate by a random degree in ``[-v, v]``");
     DMLC_DECLARE_FIELD(max_aspect_ratio).set_default(0.0f)
         .describe("Change the aspect (namely width/height) to a random value "
-                  "in ``[1 - max_aspect_ratio, 1 + max_aspect_ratio]``");
+                  "in ``[min_aspect_ratio, max_aspect_ratio]``");
+    DMLC_DECLARE_FIELD(min_aspect_ratio).set_default(0.0f)
+        .describe("Change the aspect (namely width/height) to a random value "
+                  "in ``[min_aspect_ratio, max_aspect_ratio]``");
+    DMLC_DECLARE_FIELD(max_random_area).set_default(1.0f)
+        .describe("Change the area (namely width * height) to a random value "
+                  "in ``[min_random_area, max_random_area]``");
+    DMLC_DECLARE_FIELD(min_random_area).set_default(1.0f)
+        .describe("Change the area (namely width * height) to a random value "
+                  "in ``[min_random_area, max_random_area]``");
     DMLC_DECLARE_FIELD(max_shear_ratio).set_default(0.0f)
         .describe("Apply a shear transformation (namely ``(x,y)->(x+my,y)``) "
                   "with ``m`` randomly chose from "
@@ -95,6 +120,15 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
     DMLC_DECLARE_FIELD(min_img_size).set_default(0.0f)
         .describe("Set the minimal width and height after all resize and"
                   " rotate argumentation  are applied");
+    DMLC_DECLARE_FIELD(brightness).set_default(0.0f)
+        .describe("Add a random value in ``[-brightness, brightness]`` to "
+                  "the brightness of image.");
+    DMLC_DECLARE_FIELD(contrast).set_default(0.0f)
+        .describe("Add a random value in ``[-contrast, contrast]`` to "
+                  "the contrast of image.");
+    DMLC_DECLARE_FIELD(saturation).set_default(0.0f)
+        .describe("Add a random value in ``[-saturation, saturation]`` to "
+                  "the saturation of image.");
     DMLC_DECLARE_FIELD(random_h).set_default(0)
         .describe("Add a random value in ``[-random_h, random_h]`` to "
                   "the H channel in HSL color space.");
@@ -199,107 +233,201 @@ class DefaultImageAugmenter : public ImageAugmenter {
       res = src;
     }
 
-    // normal augmentation by affine transformation.
-    if (param_.max_rotate_angle > 0 || param_.max_shear_ratio > 0.0f
-        || param_.rotate > 0 || rotate_list_.size() > 0 || param_.max_random_scale != 1.0
-        || param_.min_random_scale != 1.0 || param_.max_aspect_ratio != 0.0f
-        || param_.max_img_size != 1e10f || param_.min_img_size != 0.0f) {
-      std::uniform_real_distribution<float> rand_uniform(0, 1);
-      // shear
-      float s = rand_uniform(*prnd) * param_.max_shear_ratio * 2 - param_.max_shear_ratio;
-      // rotate
-      int angle = std::uniform_int_distribution<int>(
-          -param_.max_rotate_angle, param_.max_rotate_angle)(*prnd);
-      if (param_.rotate > 0) angle = param_.rotate;
-      if (rotate_list_.size() > 0) {
-        angle = rotate_list_[std::uniform_int_distribution<int>(0, rotate_list_.size() - 1)(*prnd)];
-      }
-      float a = cos(angle / 180.0 * M_PI);
-      float b = sin(angle / 180.0 * M_PI);
-      // scale
-      float scale = rand_uniform(*prnd) *
-          (param_.max_random_scale - param_.min_random_scale) + param_.min_random_scale;
-      // aspect ratio
-      float ratio = rand_uniform(*prnd) *
-          param_.max_aspect_ratio * 2 - param_.max_aspect_ratio + 1;
-      float hs = 2 * scale / (1 + ratio);
-      float ws = ratio * hs;
-      // new width and height
-      float new_width = std::max(param_.min_img_size,
-                                 std::min(param_.max_img_size, scale * res.cols));
-      float new_height = std::max(param_.min_img_size,
-                                  std::min(param_.max_img_size, scale * res.rows));
-      cv::Mat M(2, 3, CV_32F);
-      M.at<float>(0, 0) = hs * a - s * b * ws;
-      M.at<float>(1, 0) = -b * ws;
-      M.at<float>(0, 1) = hs * b + s * a * ws;
-      M.at<float>(1, 1) = a * ws;
-      float ori_center_width = M.at<float>(0, 0) * res.cols + M.at<float>(0, 1) * res.rows;
-      float ori_center_height = M.at<float>(1, 0) * res.cols + M.at<float>(1, 1) * res.rows;
-      M.at<float>(0, 2) = (new_width - ori_center_width) / 2;
-      M.at<float>(1, 2) = (new_height - ori_center_height) / 2;
-      CHECK((param_.inter_method >= 1 && param_.inter_method <= 4) ||
-        (param_.inter_method >= 9 && param_.inter_method <= 10))
-         << "invalid inter_method: valid value 0,1,2,3,9,10";
-      int interpolation_method = GetInterMethod(param_.inter_method,
-                    res.cols, res.rows, new_width, new_height, prnd);
-      cv::warpAffine(res, temp_, M, cv::Size(new_width, new_height),
-                     interpolation_method,
-                     cv::BORDER_CONSTANT,
-                     cv::Scalar(param_.fill_value, param_.fill_value, param_.fill_value));
-      res = temp_;
-    }
-
-    // pad logic
-    if (param_.pad > 0) {
-      cv::copyMakeBorder(res, res, param_.pad, param_.pad, param_.pad, param_.pad,
-                         cv::BORDER_CONSTANT,
-                         cv::Scalar(param_.fill_value, param_.fill_value, param_.fill_value));
-    }
-
-    // crop logic
-    if (param_.max_crop_size != -1 || param_.min_crop_size != -1) {
-      CHECK(res.cols >= param_.max_crop_size && res.rows >= \
-              param_.max_crop_size && param_.max_crop_size >= param_.min_crop_size)
-          << "input image size smaller than max_crop_size";
-      index_t rand_crop_size =
-          std::uniform_int_distribution<index_t>(param_.min_crop_size, param_.max_crop_size)(*prnd);
-      index_t y = res.rows - rand_crop_size;
-      index_t x = res.cols - rand_crop_size;
-      if (param_.rand_crop != 0) {
-        y = std::uniform_int_distribution<index_t>(0, y)(*prnd);
-        x = std::uniform_int_distribution<index_t>(0, x)(*prnd);
-      } else {
-        y /= 2; x /= 2;
-      }
-      cv::Rect roi(x, y, rand_crop_size, rand_crop_size);
-      int interpolation_method = GetInterMethod(param_.inter_method, rand_crop_size, rand_crop_size,
-                                                param_.data_shape[2], param_.data_shape[1], prnd);
-      cv::resize(res(roi), res, cv::Size(param_.data_shape[2], param_.data_shape[1])
-                , 0, 0, interpolation_method);
+    if (param_.facebook_aug) {
+      // random size crop
+      if (param_.max_random_area != 1.0f || param_.min_random_area != 1.0f
+          || param_.max_aspect_ratio > 0.0f || param_.min_aspect_ratio > 0.0f) {
+            CHECK(param_.min_aspect_ratio <= param_.max_aspect_ratio);
+            CHECK(param_.min_random_area <= param_.max_random_area);
+            std::uniform_real_distribution<float> rand_uniform(0, 1);
+            float area = res.rows * res.cols;
+            bool attemp = false;
+            for (int i = 0; i < 10; ++i) {
+              float rand_area = 0.5 * (rand_uniform(*prnd) + rand_uniform(*prnd)) *
+                  (param_.max_random_area - param_.min_random_area) + param_.min_random_area;
+              float ratio = 0.5 * (rand_uniform(*prnd) + rand_uniform(*prnd)) *
+                  (param_.max_aspect_ratio - param_.min_aspect_ratio) + param_.min_aspect_ratio;
+              float target_area = area * rand_area;
+              int y_area = std::round(std::sqrt(target_area / ratio));
+              int x_area = std::round(std::sqrt(target_area * ratio));
+              if (rand_uniform(*prnd) > 0.5) {
+                float temp_y_area = y_area;
+                y_area = x_area;
+                x_area = temp_y_area;
+              }
+              if (y_area <= res.rows && x_area <= res.cols) {
+                // random crop
+                index_t rand_y_area = std::uniform_int_distribution<index_t>(0, res.rows - y_area)(*prnd);
+                index_t rand_x_area = std::uniform_int_distribution<index_t>(0, res.cols - x_area)(*prnd);
+                cv::Rect roi(rand_x_area, rand_y_area, x_area, y_area);
+                int interpolation_method = GetInterMethod(param_.inter_method, x_area, y_area,
+                                                          param_.data_shape[2], param_.data_shape[1], prnd);
+                cv::resize(res(roi), res, cv::Size(param_.data_shape[2], param_.data_shape[1])
+                          , 0, 0, interpolation_method);
+                attemp = true;
+                break;
+              }
+            }
+              if (!attemp) {
+                // center crop
+                float scale_x = param_.data_shape[2], scale_y = param_.data_shape[1];
+                if (res.rows < static_cast<int>(scale_y)) {
+                    scale_x = param_.data_shape[2] * res.rows / param_.data_shape[1];
+                    scale_y = res.rows;
+                }
+                if (res.cols < static_cast<int>(scale_x)) {
+                    scale_x = res.cols;
+                    scale_y = param_.data_shape[1] * res.cols / param_.data_shape[2];
+                }
+                index_t scale_x_ = static_cast<index_t>(scale_x);
+                index_t scale_y_ = static_cast<index_t>(scale_y);
+                CHECK(static_cast<index_t>(res.rows) >= scale_y_
+                      && static_cast<index_t>(res.cols) >= scale_x_)
+                    << "input image size smaller than input shape";
+                index_t center_y = res.rows - scale_y_;
+                index_t center_x = res.cols - scale_x_;
+                center_y /= 2;
+                center_x /= 2;
+                cv::Rect roi(center_x, center_y, scale_x_, scale_y_);
+                int interpolation_method = GetInterMethod(param_.inter_method, scale_x_, scale_y_,
+                                                          param_.data_shape[2], param_.data_shape[1], prnd);
+                cv::resize(res(roi), res, cv::Size(param_.data_shape[2], param_.data_shape[1])
+                          , 0, 0, interpolation_method);
+              }
+            }
     } else {
-      CHECK(static_cast<index_t>(res.rows) >= param_.data_shape[1]
-            && static_cast<index_t>(res.cols) >= param_.data_shape[2])
-          << "input image size smaller than input shape";
-      index_t y = res.rows - param_.data_shape[1];
-      index_t x = res.cols - param_.data_shape[2];
-      if (param_.rand_crop != 0) {
-        y = std::uniform_int_distribution<index_t>(0, y)(*prnd);
-        x = std::uniform_int_distribution<index_t>(0, x)(*prnd);
-      } else {
-        y /= 2; x /= 2;
+      // normal augmentation by affine transformation.
+      if (param_.max_rotate_angle > 0 || param_.max_shear_ratio > 0.0f
+          || param_.rotate > 0 || rotate_list_.size() > 0 || param_.max_random_scale != 1.0
+          || param_.min_random_scale != 1.0 || param_.max_aspect_ratio != 0.0f
+          || param_.max_img_size != 1e10f || param_.min_img_size != 0.0f) {
+        std::uniform_real_distribution<float> rand_uniform(0, 1);
+        // shear
+        float s = rand_uniform(*prnd) * param_.max_shear_ratio * 2 - param_.max_shear_ratio;
+        // rotate
+        int angle = std::uniform_int_distribution<int>(
+            -param_.max_rotate_angle, param_.max_rotate_angle)(*prnd);
+        if (param_.rotate > 0) angle = param_.rotate;
+        if (rotate_list_.size() > 0) {
+          angle = rotate_list_[std::uniform_int_distribution<int>(0, rotate_list_.size() - 1)(*prnd)];
+        }
+        float a = cos(angle / 180.0 * M_PI);
+        float b = sin(angle / 180.0 * M_PI);
+        // scale
+        float scale = rand_uniform(*prnd) *
+            (param_.max_random_scale - param_.min_random_scale) + param_.min_random_scale;
+        // aspect ratio
+        float ratio = rand_uniform(*prnd) *
+            param_.max_aspect_ratio * 2 - param_.max_aspect_ratio + 1;
+        float hs = 2 * scale / (1 + ratio);
+        float ws = ratio * hs;
+        // new width and height
+        float new_width = std::max(param_.min_img_size,
+                                   std::min(param_.max_img_size, scale * res.cols));
+        float new_height = std::max(param_.min_img_size,
+                                    std::min(param_.max_img_size, scale * res.rows));
+        cv::Mat M(2, 3, CV_32F);
+        M.at<float>(0, 0) = hs * a - s * b * ws;
+        M.at<float>(1, 0) = -b * ws;
+        M.at<float>(0, 1) = hs * b + s * a * ws;
+        M.at<float>(1, 1) = a * ws;
+        float ori_center_width = M.at<float>(0, 0) * res.cols + M.at<float>(0, 1) * res.rows;
+        float ori_center_height = M.at<float>(1, 0) * res.cols + M.at<float>(1, 1) * res.rows;
+        M.at<float>(0, 2) = (new_width - ori_center_width) / 2;
+        M.at<float>(1, 2) = (new_height - ori_center_height) / 2;
+        CHECK((param_.inter_method >= 1 && param_.inter_method <= 4) ||
+          (param_.inter_method >= 9 && param_.inter_method <= 10))
+           << "invalid inter_method: valid value 0,1,2,3,9,10";
+        int interpolation_method = GetInterMethod(param_.inter_method,
+                      res.cols, res.rows, new_width, new_height, prnd);
+        cv::warpAffine(res, temp_, M, cv::Size(new_width, new_height),
+                       interpolation_method,
+                       cv::BORDER_CONSTANT,
+                       cv::Scalar(param_.fill_value, param_.fill_value, param_.fill_value));
+        res = temp_;
       }
-      cv::Rect roi(x, y, param_.data_shape[2], param_.data_shape[1]);
-      res = res(roi);
+
+      // pad logic
+      if (param_.pad > 0) {
+        cv::copyMakeBorder(res, res, param_.pad, param_.pad, param_.pad, param_.pad,
+                           cv::BORDER_CONSTANT,
+                           cv::Scalar(param_.fill_value, param_.fill_value, param_.fill_value));
+      }
+
+      // crop logic
+      if (param_.max_crop_size != -1 || param_.min_crop_size != -1) {
+        CHECK(res.cols >= param_.max_crop_size && res.rows >= \
+                param_.max_crop_size && param_.max_crop_size >= param_.min_crop_size)
+            << "input image size smaller than max_crop_size";
+        index_t rand_crop_size =
+            std::uniform_int_distribution<index_t>(param_.min_crop_size, param_.max_crop_size)(*prnd);
+        index_t y = res.rows - rand_crop_size;
+        index_t x = res.cols - rand_crop_size;
+        if (param_.rand_crop != 0) {
+          y = std::uniform_int_distribution<index_t>(0, y)(*prnd);
+          x = std::uniform_int_distribution<index_t>(0, x)(*prnd);
+        } else {
+          y /= 2; x /= 2;
+        }
+        cv::Rect roi(x, y, rand_crop_size, rand_crop_size);
+        int interpolation_method = GetInterMethod(param_.inter_method, rand_crop_size, rand_crop_size,
+                                                  param_.data_shape[2], param_.data_shape[1], prnd);
+        cv::resize(res(roi), res, cv::Size(param_.data_shape[2], param_.data_shape[1])
+                  , 0, 0, interpolation_method);
+      } else {
+        CHECK(static_cast<index_t>(res.rows) >= param_.data_shape[1]
+              && static_cast<index_t>(res.cols) >= param_.data_shape[2])
+            << "input image size smaller than input shape";
+        index_t y = res.rows - param_.data_shape[1];
+        index_t x = res.cols - param_.data_shape[2];
+        if (param_.rand_crop != 0) {
+          y = std::uniform_int_distribution<index_t>(0, y)(*prnd);
+          x = std::uniform_int_distribution<index_t>(0, x)(*prnd);
+        } else {
+          y /= 2; x /= 2;
+        }
+        cv::Rect roi(x, y, param_.data_shape[2], param_.data_shape[1]);
+        res = res(roi);
+      }
     }
 
+    if (param_.brightness > 0.0f || param_.contrast > 0.0f || param_.saturation > 0.0f) {
+        std::uniform_real_distribution<float> rand_uniform(0, 1);
+        float alpha_b = 1.0 + rand_uniform(*prnd) * param_.brightness * 2 - param_.brightness;
+        float alpha_c = 1.0 + rand_uniform(*prnd) * param_.contrast * 2 - param_.contrast;
+        float alpha_s = 1.0 + rand_uniform(*prnd) * param_.saturation * 2 - param_.saturation;
+        int rand_order[3] = {0, 1, 2};
+        std::random_shuffle(std::begin(rand_order), std::end(rand_order));
+        for (int i = 0; i < 3; ++i) {
+            if (rand_order[i] == 0) {
+                // brightness
+                res.convertTo(res, -1, alpha_b, 0);
+            }
+            if (rand_order[i] == 1) {
+                // contrast
+                cvtColor(res, temp_, CV_RGB2GRAY);
+                float gray_mean = cv::mean(temp_)[0];
+                res.convertTo(res, -1, alpha_c, (1 - alpha_c) * gray_mean);
+            }
+            if (rand_order[i] == 2) {
+                // saturation
+                cvtColor(res, temp_, CV_RGB2GRAY);
+                cvtColor(temp_, temp_, CV_GRAY2BGR);
+                cv::addWeighted(res, alpha_s, temp_, 1 - alpha_s, 0.0, res);
+            }
+        }
+    }
     // color space augmentation
     if (param_.random_h != 0 || param_.random_s != 0 || param_.random_l != 0) {
       std::uniform_real_distribution<float> rand_uniform(0, 1);
       cvtColor(res, res, CV_BGR2HLS);
-      int h = rand_uniform(*prnd) * param_.random_h * 2 - param_.random_h;
-      int s = rand_uniform(*prnd) * param_.random_s * 2 - param_.random_s;
-      int l = rand_uniform(*prnd) * param_.random_l * 2 - param_.random_l;
+      // use an approximation of gaussian distribution to reduce extreme value
+      float rh = rand_uniform(*prnd); rh += 4 * rand_uniform(*prnd); rh = rh / 5;
+      float rs = rand_uniform(*prnd); rs += 4 * rand_uniform(*prnd); rs = rs / 5;
+      float rl = rand_uniform(*prnd); rl += 4 * rand_uniform(*prnd); rl = rl / 5;
+      int h = rh * param_.random_h * 2 - param_.random_h;
+      int s = rs * param_.random_s * 2 - param_.random_s;
+      int l = rl * param_.random_l * 2 - param_.random_l;
       int temp[3] = {h, l, s};
       int limit[3] = {180, 255, 255};
       for (int i = 0; i < res.rows; ++i) {
