@@ -375,12 +375,24 @@ inline void ImageRecordIOParser2<DType>::ParseChunk(dmlc::InputSplit::Blob * chu
                 normalize_param_.mean_b > 0.0f || normalize_param_.mean_a > 0.0f) {
               // subtract mean per channel
               RGBA[0] -= normalize_param_.mean_r;
+              if (normalize_param_.std_r > 0.0f) {
+                RGBA[0] /= normalize_param_.std_r;
+              }
               if (n_channels >= 3) {
                 RGBA[1] -= normalize_param_.mean_g;
+                if (normalize_param_.std_g > 0.0f) {
+                  RGBA[1] /= normalize_param_.std_g;
+                }
                 RGBA[2] -= normalize_param_.mean_b;
+                if (normalize_param_.std_b > 0.0f) {
+                  RGBA[2] /= normalize_param_.std_b;
+                }
               }
               if (n_channels == 4) {
                 RGBA[3] -= normalize_param_.mean_a;
+                if (normalize_param_.std_a > 0.0f) {
+                  RGBA[3] /= normalize_param_.std_a;
+                }
               }
               for (int k = 0; k < n_channels; ++k) {
                 RGBA[k] = RGBA[k] * contrast_scaled + illumination_scaled;
