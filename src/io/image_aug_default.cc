@@ -59,6 +59,8 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
   float contrast;
   /*! \brief max random saturation */
   float saturation;
+  /*! \brief pca noise level */
+  float pca_noise;
   /*! \brief max random in H channel */
   int random_h;
   /*! \brief max random in S channel */
@@ -129,6 +131,8 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
     DMLC_DECLARE_FIELD(saturation).set_default(0.0f)
         .describe("Add a random value in ``[-saturation, saturation]`` to "
                   "the saturation of image.");
+        DMLC_DECLARE_FIELD(pca_noise).set_default(0.0f)
+                .describe("Add PCA based noise to the image.");
     DMLC_DECLARE_FIELD(random_h).set_default(0)
         .describe("Add a random value in ``[-random_h, random_h]`` to "
                   "the H channel in HSL color space.");
@@ -390,7 +394,7 @@ class DefaultImageAugmenter : public ImageAugmenter {
         res = res(roi);
       }
     }
-
+        // color jitter
     if (param_.brightness > 0.0f || param_.contrast > 0.0f || param_.saturation > 0.0f) {
         std::uniform_real_distribution<float> rand_uniform(0, 1);
         float alpha_b = 1.0 + rand_uniform(*prnd) * param_.brightness * 2 - param_.brightness;
@@ -442,6 +446,28 @@ class DefaultImageAugmenter : public ImageAugmenter {
       }
       cvtColor(res, res, CV_HLS2BGR);
     }
+        // pca noise
+        if (param_.pca_noise > 0.0f) {
+                std::normal_distribution<float> rand_normal(0, param_.pca_noise);
+                float pca_alpha_r = rand_normal(*prnd); pca_alpha_r += 4 * rand_normal(*prnd); pca_alpha_r = pca_alpha_r / 5;
+                float pca_alpha_g = rand_normal(*prnd); pca_alpha_g += 4 * rand_normal(*prnd); pca_alpha_g = pca_alpha_g / 5;
+                float pca_alpha_b = rand_normal(*prnd); pca_alpha_b += 4 * rand_normal(*prnd); pca_alpha_b = pca_alpha_b / 5;
+                float pca_r = eigvec[0][0] * pca_alpha_r + eigvec[0][1] * pca_alpha_g + eigvec[0][2] * pca_alpha_b;
+                float pca_g = eigvec[1][0] * pca_alpha_r + eigvec[1][1] * pca_alpha_g + eigvec[1][2] * pca_alpha_b;
+                float pca_b = eigvec[2][0] * pca_alpha_r + eigvec[2][1] * pca_alpha_g + eigvec[2][2] * pca_alpha_b;
+                float pca[3] = { pca_b, pca_g, pca_r };
+                for (int i = 0; i < res.rows; ++i) {
+                        for (int j = 0; j < res.cols; ++j) {
+                                for (int k = 0; k < 3; ++k) {
+                                        int vp = res.at<cv::Vec3b>(i, j)[k];
+                                        vp += pca[k];
+                                        vp = std::max(0, std::min(255, vp));
+                                        res.at<cv::Vec3b>(i, j)[k] = vp;
+                                }
+                        }
+                }
+
+        }
     return res;
   }
 
@@ -450,6 +476,11 @@ class DefaultImageAugmenter : public ImageAugmenter {
   cv::Mat temp_;
   // rotation param
   cv::Mat rotateM_;
+  // eigval and eigvec for adding pca noise
+  // store eigval * eigvec as eigvec
+  float eigvec[3][3] = { { 55.46 * -0.5675, 4.794 * 0.7192,  1.148 * 0.4009 },
+                         { 55.46 * -0.5808, 4.794 * -0.0045, 1.148 * -0.8140 },
+                         { 55.46 * -0.5836, 4.794 * -0.6948, 1.148 * 0.4203 } };
   // parameters
   DefaultImageAugmentParam param_;
   /*! \brief list of possible rotate angle */
