@@ -274,29 +274,30 @@ class DefaultImageAugmenter : public ImageAugmenter {
             }
               if (!attemp) {
                 // center crop
-                float scale_x = param_.data_shape[2], scale_y = param_.data_shape[1];
-                if (res.rows < static_cast<int>(scale_y)) {
-                    scale_x = param_.data_shape[2] * res.rows / param_.data_shape[1];
-                    scale_y = res.rows;
+                if (res.rows < res.cols) {
+                  index_t scale_x = static_cast<index_t>(static_cast<float>(res.cols) / static_cast<float>(res.rows) *
+                                                         static_cast<float>(param_.data_shape[2]));
+                  int interpolation_method = GetInterMethod(param_.inter_method,
+                                                            scale_x, param_.data_shape[1],
+                                                            param_.data_shape[2], param_.data_shape[1], prnd);
+                  cv::resize(res, res, cv::Size(scale_x, param_.data_shape[1]));
+                } else {
+                  index_t scale_y = static_cast<index_t>(static_cast<float>(res.rows) / static_cast<float>(res.cols) *
+                                                         static_cast<float>(param_.data_shape[1]));
+                  int interpolation_method = GetInterMethod(param_.inter_method,
+                                                            param_.data_shape[2], scale_y,
+                                                            param_.data_shape[2], param_.data_shape[1], prnd);
+                  cv::resize(res, res, cv::Size(param_.data_shape[2], scale_y));
                 }
-                if (res.cols < static_cast<int>(scale_x)) {
-                    scale_x = res.cols;
-                    scale_y = param_.data_shape[1] * res.cols / param_.data_shape[2];
-                }
-                index_t scale_x_ = static_cast<index_t>(scale_x);
-                index_t scale_y_ = static_cast<index_t>(scale_y);
-                CHECK(static_cast<index_t>(res.rows) >= scale_y_
-                      && static_cast<index_t>(res.cols) >= scale_x_)
+                CHECK(static_cast<index_t>(res.rows) >= param_.data_shape[1]
+                      && static_cast<index_t>(res.cols) >= param_.data_shape[2])
                     << "input image size smaller than input shape";
-                index_t center_y = res.rows - scale_y_;
-                index_t center_x = res.cols - scale_x_;
+                index_t center_y = res.rows - param_.data_shape[1];
+                index_t center_x = res.cols - param_.data_shape[2];
                 center_y /= 2;
                 center_x /= 2;
-                cv::Rect roi(center_x, center_y, scale_x_, scale_y_);
-                int interpolation_method = GetInterMethod(param_.inter_method, scale_x_, scale_y_,
-                                                          param_.data_shape[2], param_.data_shape[1], prnd);
-                cv::resize(res(roi), res, cv::Size(param_.data_shape[2], param_.data_shape[1])
-                          , 0, 0, interpolation_method);
+                cv::Rect roi(center_x, center_y, param_.data_shape[2], param_.data_shape[1]);
+                res = res(roi);
               }
             }
     } else {
