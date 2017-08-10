@@ -243,14 +243,14 @@ class DefaultImageAugmenter : public ImageAugmenter {
           || param_.max_aspect_ratio > 0.0f || param_.min_aspect_ratio > 0.0f) {
             CHECK(param_.min_aspect_ratio <= param_.max_aspect_ratio);
             CHECK(param_.min_random_area <= param_.max_random_area);
+            std::uniform_real_distribution<float> rand_uniform_area(param_.min_random_area, param_.max_random_area);
+            std::uniform_real_distribution<float> rand_uniform_ratio(param_.min_aspect_ratio, param_.max_aspect_ratio);
             std::uniform_real_distribution<float> rand_uniform(0, 1);
             float area = res.rows * res.cols;
             bool attemp = false;
             for (int i = 0; i < 10; ++i) {
-              float rand_area = 0.5 * (rand_uniform(*prnd) + rand_uniform(*prnd)) *
-                  (param_.max_random_area - param_.min_random_area) + param_.min_random_area;
-              float ratio = 0.5 * (rand_uniform(*prnd) + rand_uniform(*prnd)) *
-                  (param_.max_aspect_ratio - param_.min_aspect_ratio) + param_.min_aspect_ratio;
+              float rand_area = rand_uniform_area(*prnd);
+              float ratio = rand_uniform_ratio(*prnd);
               float target_area = area * rand_area;
               int y_area = std::round(std::sqrt(target_area / ratio));
               int x_area = std::round(std::sqrt(target_area * ratio));
@@ -272,34 +272,34 @@ class DefaultImageAugmenter : public ImageAugmenter {
                 break;
               }
             }
-              if (!attemp) {
-                // center crop
-                if (res.rows < res.cols) {
-                  index_t scale_x = static_cast<index_t>(static_cast<float>(res.cols) / static_cast<float>(res.rows) *
-                                                         static_cast<float>(param_.data_shape[2]));
-                  int interpolation_method = GetInterMethod(param_.inter_method,
-                                                            scale_x, param_.data_shape[1],
-                                                            param_.data_shape[2], param_.data_shape[1], prnd);
-                  cv::resize(res, res, cv::Size(scale_x, param_.data_shape[1]));
-                } else {
-                  index_t scale_y = static_cast<index_t>(static_cast<float>(res.rows) / static_cast<float>(res.cols) *
-                                                         static_cast<float>(param_.data_shape[1]));
-                  int interpolation_method = GetInterMethod(param_.inter_method,
-                                                            param_.data_shape[2], scale_y,
-                                                            param_.data_shape[2], param_.data_shape[1], prnd);
-                  cv::resize(res, res, cv::Size(param_.data_shape[2], scale_y));
-                }
-                CHECK(static_cast<index_t>(res.rows) >= param_.data_shape[1]
-                      && static_cast<index_t>(res.cols) >= param_.data_shape[2])
-                    << "input image size smaller than input shape";
-                index_t center_y = res.rows - param_.data_shape[1];
-                index_t center_x = res.cols - param_.data_shape[2];
-                center_y /= 2;
-                center_x /= 2;
-                cv::Rect roi(center_x, center_y, param_.data_shape[2], param_.data_shape[1]);
-                res = res(roi);
-              }
+            if (!attemp) {
+               // center crop
+               if (res.rows < res.cols) {
+                 index_t scale_x = static_cast<index_t>(static_cast<float>(res.cols) / static_cast<float>(res.rows) *
+                                                        static_cast<float>(param_.data_shape[2]));
+                 int interpolation_method = GetInterMethod(param_.inter_method,
+                                                           scale_x, param_.data_shape[1],
+                                                           param_.data_shape[2], param_.data_shape[1], prnd);
+                 cv::resize(res, res, cv::Size(scale_x, param_.data_shape[1]));
+               } else {
+                 index_t scale_y = static_cast<index_t>(static_cast<float>(res.rows) / static_cast<float>(res.cols) *
+                                                        static_cast<float>(param_.data_shape[1]));
+                 int interpolation_method = GetInterMethod(param_.inter_method,
+                                                           param_.data_shape[2], scale_y,
+                                                           param_.data_shape[2], param_.data_shape[1], prnd);
+                 cv::resize(res, res, cv::Size(param_.data_shape[2], scale_y));
+               }
+               CHECK(static_cast<index_t>(res.rows) >= param_.data_shape[1]
+                     && static_cast<index_t>(res.cols) >= param_.data_shape[2])
+                     << "input image size smaller than input shape";
+               index_t center_y = res.rows - param_.data_shape[1];
+               index_t center_x = res.cols - param_.data_shape[2];
+               center_y /= 2;
+               center_x /= 2;
+               cv::Rect roi(center_x, center_y, param_.data_shape[2], param_.data_shape[1]);
+               res = res(roi);
             }
+      }
     } else {
       // normal augmentation by affine transformation.
       if (param_.max_rotate_angle > 0 || param_.max_shear_ratio > 0.0f
@@ -398,9 +398,9 @@ class DefaultImageAugmenter : public ImageAugmenter {
         // color jitter
     if (param_.brightness > 0.0f || param_.contrast > 0.0f || param_.saturation > 0.0f) {
         std::uniform_real_distribution<float> rand_uniform(0, 1);
-        float alpha_b = 1.0 + rand_uniform(*prnd) * param_.brightness * 2 - param_.brightness;
-        float alpha_c = 1.0 + rand_uniform(*prnd) * param_.contrast * 2 - param_.contrast;
-        float alpha_s = 1.0 + rand_uniform(*prnd) * param_.saturation * 2 - param_.saturation;
+        float alpha_b = 1.0 + std::uniform_real_distribution<float>(-param_.brightness, param_.brightness)(*prnd);
+        float alpha_c = 1.0 + std::uniform_real_distribution<float>(-param_.contrast, param_.contrast)(*prnd);
+        float alpha_s = 1.0 + std::uniform_real_distribution<float>(-param_.saturation, param_.saturation)(*prnd);
         int rand_order[3] = {0, 1, 2};
         std::random_shuffle(std::begin(rand_order), std::end(rand_order));
         for (int i = 0; i < 3; ++i) {
@@ -447,28 +447,27 @@ class DefaultImageAugmenter : public ImageAugmenter {
       }
       cvtColor(res, res, CV_HLS2BGR);
     }
-        // pca noise
-        if (param_.pca_noise > 0.0f) {
-                std::normal_distribution<float> rand_normal(0, param_.pca_noise);
-                float pca_alpha_r = rand_normal(*prnd); pca_alpha_r += 4 * rand_normal(*prnd); pca_alpha_r = pca_alpha_r / 5;
-                float pca_alpha_g = rand_normal(*prnd); pca_alpha_g += 4 * rand_normal(*prnd); pca_alpha_g = pca_alpha_g / 5;
-                float pca_alpha_b = rand_normal(*prnd); pca_alpha_b += 4 * rand_normal(*prnd); pca_alpha_b = pca_alpha_b / 5;
-                float pca_r = eigvec[0][0] * pca_alpha_r + eigvec[0][1] * pca_alpha_g + eigvec[0][2] * pca_alpha_b;
-                float pca_g = eigvec[1][0] * pca_alpha_r + eigvec[1][1] * pca_alpha_g + eigvec[1][2] * pca_alpha_b;
-                float pca_b = eigvec[2][0] * pca_alpha_r + eigvec[2][1] * pca_alpha_g + eigvec[2][2] * pca_alpha_b;
-                float pca[3] = { pca_b, pca_g, pca_r };
-                for (int i = 0; i < res.rows; ++i) {
-                        for (int j = 0; j < res.cols; ++j) {
-                                for (int k = 0; k < 3; ++k) {
-                                        int vp = res.at<cv::Vec3b>(i, j)[k];
-                                        vp += pca[k];
-                                        vp = std::max(0, std::min(255, vp));
-                                        res.at<cv::Vec3b>(i, j)[k] = vp;
-                                }
-                        }
-                }
-
+    // pca noise
+    if (param_.pca_noise > 0.0f) {
+      std::normal_distribution<float> rand_normal(0, param_.pca_noise);
+      float pca_alpha_r = rand_normal(*prnd);
+      float pca_alpha_g = rand_normal(*prnd);
+      float pca_alpha_b = rand_normal(*prnd);
+      float pca_r = eigvec[0][0] * pca_alpha_r + eigvec[0][1] * pca_alpha_g + eigvec[0][2] * pca_alpha_b;
+      float pca_g = eigvec[1][0] * pca_alpha_r + eigvec[1][1] * pca_alpha_g + eigvec[1][2] * pca_alpha_b;
+      float pca_b = eigvec[2][0] * pca_alpha_r + eigvec[2][1] * pca_alpha_g + eigvec[2][2] * pca_alpha_b;
+      float pca[3] = { pca_b, pca_g, pca_r };
+      for (int i = 0; i < res.rows; ++i) {
+        for (int j = 0; j < res.cols; ++j) {
+          for (int k = 0; k < 3; ++k) {
+            int vp = res.at<cv::Vec3b>(i, j)[k];
+            vp += pca[k];
+            vp = std::max(0, std::min(255, vp));
+            res.at<cv::Vec3b>(i, j)[k] = vp;
+          }
         }
+      }
+    }
     return res;
   }
 
