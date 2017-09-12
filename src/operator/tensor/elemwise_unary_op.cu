@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- *  Copyright (c) 2016 by Contributors
  * \file elemwise_unary_op.cu
  * \brief GPU Implementation of unary function.
  */
@@ -22,7 +40,8 @@ NNVM_REGISTER_OP(_backward_sigmoid)
 
 // copy
 NNVM_REGISTER_OP(_copy)
-.set_attr<FCompute>("FCompute<gpu>", IdentityCompute<gpu>);
+.set_attr<FCompute>("FCompute<gpu>", IdentityCompute<gpu>)
+.set_attr<FComputeEx>("FComputeEx<gpu>", IdentityComputeEx<gpu>);
 
 NNVM_REGISTER_OP(_backward_copy)
 .set_attr<FCompute>("FCompute<gpu>", IdentityCompute<gpu>);
@@ -35,7 +54,9 @@ NNVM_REGISTER_OP(make_loss)
 
 // identity output as first input, but attributes are constrainted to be like rhs
 NNVM_REGISTER_OP(_identity_with_attr_like_rhs)
-.set_attr<FCompute>("FCompute<gpu>", IdentityCompute<gpu>);
+.set_attr<FCompute>("FCompute<gpu>", IdentityCompute<gpu>)
+.set_attr<FComputeEx>("FComputeEx<gpu>", IdentityLikeRhsComputeEx<gpu>);
+
 
 NNVM_REGISTER_OP(Cast)
 .set_attr<FCompute>("FCompute<gpu>", CastCompute<gpu>);
@@ -114,6 +135,21 @@ NNVM_REGISTER_OP(rsqrt)
 NNVM_REGISTER_OP(_backward_rsqrt)
 .set_attr<FCompute>("FCompute<gpu>",
   BinaryCompute<gpu, unary_bwd<mshadow_op::reciprocal_square_root_grad> >);
+
+// cbrt
+NNVM_REGISTER_OP(cbrt)
+.set_attr<FCompute>("FCompute<gpu>", UnaryCompute<gpu, mshadow_op::cube_root>);
+
+NNVM_REGISTER_OP(_backward_cbrt)
+.set_attr<FCompute>("FCompute<gpu>", BinaryCompute<gpu, unary_bwd<mshadow_op::cube_root_grad> >);
+
+// rcbrt
+NNVM_REGISTER_OP(rcbrt)
+.set_attr<FCompute>("FCompute<gpu>", UnaryCompute<gpu, mshadow_op::reciprocal_cube_root>);
+
+NNVM_REGISTER_OP(_backward_rcbrt)
+.set_attr<FCompute>("FCompute<gpu>",
+  BinaryCompute<gpu, unary_bwd<mshadow_op::reciprocal_cube_root_grad> >);
 
 // exp
 NNVM_REGISTER_OP(exp)

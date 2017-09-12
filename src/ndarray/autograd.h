@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- *  Copyright (c) 2017 by Contributors
  * \file autograd.h
  * \brief AutogradRuntime can automatically compute gradients
  */
@@ -77,17 +95,19 @@ class AutogradRuntime {
   void MarkVariables(const std::vector<NDArray*>& variables,
                      const std::vector<mx_uint>& grad_reqs,
                      const std::vector<NDArray*>& gradients);
-  /*! \brief record imperative operator which is executed by fcompute. */
-  void RecordImperativeFCompute(const nnvm::Op* op,
-                                const nnvm::NodeAttrs& attrs,
-                                std::vector<NDArray>* p_inputs,
-                                std::vector<NDArray>* p_outputs);
-  /*! \brief record imperative operator which is executed by operator. */
-  void RecordImperativeOperator(const OpStatePtr& state,
-                                const nnvm::Op* op,
-                                const nnvm::NodeAttrs& attrs,
-                                std::vector<NDArray>* p_inputs,
-                                std::vector<NDArray>* p_outputs);
+  /*! \brief find the input/output ndarrays that are needed for backward */
+  void GetBackwardDependency(
+      const nnvm::NodePtr& node,
+      uint32_t num_inputs, uint32_t num_outputs,
+      std::vector<bool> *p_save_inputs,
+      std::vector<bool> *p_save_outputs);
+  /*! \brief to record operator, return corresponding node. */
+  void RecordOp(nnvm::NodeAttrs&& attrs,
+                std::vector<NDArray>* p_inputs,
+                std::vector<NDArray>* p_outputs,
+                const OpStatePtr& state = OpStatePtr(),
+                std::vector<bool>* p_save_inputs = nullptr,
+                std::vector<bool>* p_save_outputs = nullptr);
   /*! \brief compute the gradient of outputs w.r.t variables. */
   void ComputeGradient(const std::vector<NDArray>& outputs,
                        const std::vector<NDArray>& ograds,
@@ -108,12 +128,6 @@ class AutogradRuntime {
   AutogradRuntime();
 
  private:
-  /*! \brief to record operator, return corresponding node. */
-  AGNodePtr RecordOp(const nnvm::Op* op,
-                     const nnvm::NodeAttrs& attrs,
-                     std::vector<NDArray>* p_inputs,
-                     std::vector<NDArray>* p_outputs,
-                     const OpStatePtr& state);
   /*! \brief AutogradRuntime singleton. */
   static AutogradRuntime* instance_;
   /*! \brief indicate whether is training. */

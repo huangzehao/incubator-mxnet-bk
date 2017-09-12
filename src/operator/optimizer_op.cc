@@ -1,5 +1,23 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
 /*!
- *  Copyright (c) 2016 by Contributors
  * \file optimizer_op.cc
  * \brief Optimizer operators
  * \author Junyuan Xie
@@ -22,6 +40,12 @@ It updates the weights using::
 
  weight = weight - learning_rate * gradient
 
+If weight is of ``row_sparse`` storage type,
+only the row slices whose indices appear in grad.indices are updated::
+
+ for row in gradient.indices:
+     weight[row] = weight[row] - learning_rate * gradient[row]
+
 )code" ADD_FILELINE)
 .set_num_inputs(2)
 .set_num_outputs(1)
@@ -29,6 +53,7 @@ It updates the weights using::
 .set_attr<nnvm::FInferShape>("FInferShape", ElemwiseShape<2, 1>)
 .set_attr<nnvm::FInferType>("FInferType", ElemwiseType<2, 1>)
 .set_attr<FCompute>("FCompute<cpu>", SGDUpdate<cpu>)
+.set_attr<FComputeEx>("FComputeEx<cpu>", SGDUpdateEx<cpu>)
 .add_argument("weight", "NDArray-or-Symbol", "Weight")
 .add_argument("grad", "NDArray-or-Symbol", "Gradient")
 .add_arguments(SGDParam::__FIELDS__());
@@ -52,6 +77,13 @@ It updates the weights using::
 
 Where the parameter ``momentum`` is the decay rate of momentum estimates at each epoch.
 
+If weight and momentum are both of ``row_sparse`` storage type,
+only the row slices whose indices appear in grad.indices are updated (for both weight and momentum)::
+
+  for row in gradient.indices:
+      v[row] = momentum[row] * v[row] - learning_rate * gradient[row]
+      weight[row] += v[row]
+
 )code" ADD_FILELINE)
 .set_num_inputs(3)
 .set_num_outputs(1)
@@ -63,6 +95,7 @@ Where the parameter ``momentum`` is the decay rate of momentum estimates at each
     return std::vector<uint32_t>{2};
   })
 .set_attr<FCompute>("FCompute<cpu>", SGDMomUpdate<cpu>)
+.set_attr<FComputeEx>("FComputeEx<cpu>", SGDMomUpdateEx<cpu>)
 .add_argument("weight", "NDArray-or-Symbol", "Weight")
 .add_argument("grad", "NDArray-or-Symbol", "Gradient")
 .add_argument("mom", "NDArray-or-Symbol", "Momentum")
@@ -123,6 +156,14 @@ It updates the weights using::
  v = beta2*v + (1-beta2)*(grad**2)
  w += - learning_rate * m / (sqrt(v) + epsilon)
 
+If w, m and v are all of ``row_sparse`` storage type,
+only the row slices whose indices appear in grad.indices are updated (for w, m and v)::
+
+ for row in grad.indices:
+     m[row] = beta1*m[row] + (1-beta1)*grad[row]
+     v[row] = beta2*v[row] + (1-beta2)*(grad[row]**2)
+     w[row] += - learning_rate * m[row] / (sqrt(v[row]) + epsilon)
+
 )code" ADD_FILELINE)
 .set_num_inputs(4)
 .set_num_outputs(1)
@@ -134,6 +175,7 @@ It updates the weights using::
     return std::vector<uint32_t>{2, 3};
   })
 .set_attr<FCompute>("FCompute<cpu>", AdamUpdate<cpu>)
+.set_attr<FComputeEx>("FComputeEx<cpu>", AdamUpdateEx<cpu>)
 .add_argument("weight", "NDArray-or-Symbol", "Weight")
 .add_argument("grad", "NDArray-or-Symbol", "Gradient")
 .add_argument("mean", "NDArray-or-Symbol", "Moving mean")
